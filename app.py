@@ -10,14 +10,17 @@ st.set_page_config(page_title="Estudio Técnico-Económico | GERER L ENERGY", la
 @st.cache_data
 def cargar_catalogo():
     try:
-        # Lee el archivo CSV. Asegúrate de que el nombre coincida exactamente en GitHub.
-        df = pd.read_csv("precios_victron.csv")
-        # Limpieza de seguridad: convierte la columna '$' a número puro (quita comas si las hay)
+        # Agregamos encoding='latin1' para que Python pueda leer tildes y símbolos especiales de tu Excel
+        # También agregamos sep=';' por si tu Excel en español separó las columnas con punto y coma
+        df = pd.read_csv("precios_victron.csv", encoding='latin1', sep=None, engine='python')
+        
+        # Limpieza de seguridad: convierte la columna '$' a número puro
         df['$'] = df['$'].astype(str).str.replace(',', '').astype(float)
         return df
     except FileNotFoundError:
-        # Mensaje de error amigable por si el nombre del archivo no coincide
         return pd.DataFrame({"Código": ["Error"], "Equipo": ["Falta archivo precios_victron.csv"], "$": [0.0]})
+    except Exception as e:
+        return pd.DataFrame({"Código": ["Error"], "Equipo": [f"Error de formato: {e}"], "$": [0.0]})
 
 df_catalogo = cargar_catalogo()
 
