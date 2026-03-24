@@ -8,13 +8,15 @@ st.set_page_config(page_title="Estudio Técnico-Económico | GERER L ENERGY", la
 
 def calcular_flujo_caja(capex, ahorro_anual, opex_anual, anios, costo_baterias, anio_reemplazo, cok):
     """
-    Motor algorítmico para calcular el Flujo de Caja Libre (FCF), VPN y TIR.
+    Motor algorítmico (V1.1) para calcular FCF, VPN, TIR y Payback Descontado.
     """
     flujos = []
-    flujo_acumulado = []
+    flujos_descontados = []
+    flujo_acumulado_desc = []
     acumulado = 0
     
     for anio in range(anios + 1):
+        # 1. Flujo Nominal
         if anio == 0:
             flujo_neto = -capex
         else:
@@ -24,28 +26,37 @@ def calcular_flujo_caja(capex, ahorro_anual, opex_anual, anios, costo_baterias, 
                 flujo_neto -= costo_baterias
                 
         flujos.append(flujo_neto)
-        acumulado += flujo_neto
-        flujo_acumulado.append(acumulado)
+        
+        # 2. Flujo Descontado
+        flujo_desc = flujo_neto / ((1 + cok) ** anio)
+        flujos_descontados.append(flujo_desc)
+        
+        # 3. Acumulado Descontado
+        acumulado += flujo_desc
+        flujo_acumulado_desc.append(acumulado)
         
     # Cálculos Financieros
     vpn = npf.npv(cok, flujos)
-    # Manejo de error para TIR en caso de flujos no convencionales
     try:
         tir = npf.irr(flujos) * 100
     except:
         tir = 0.0
         
-    # Calcular Payback Simple
+    # Calcular Payback Descontado Exacto (Interpolación)
     payback = "No recupera"
-    for i, acum in enumerate(flujo_acumulado):
-        if acum >= 0 and i > 0:
-            payback = f"{i} años"
+    for i in range(1, len(flujo_acumulado_desc)):
+        if flujo_acumulado_desc[i] >= 0 and flujo_acumulado_desc[i-1] < 0:
+            # Interpolación lineal: Año_Anterior + ABS(Acumulado_Anterior) / Flujo_Descontado_Actual
+            fraccion_anio = abs(flujo_acumulado_desc[i-1]) / flujos_descontados[i]
+            payback_exacto = (i - 1) + fraccion_anio
+            payback = f"{payback_exacto:.1f} años"
             break
             
     df_flujo = pd.DataFrame({
         "Año": range(anios + 1),
-        "Flujo Neto ($)": flujos,
-        "Flujo Acumulado ($)": flujo_acumulado
+        "Flujo Nominal ($)": flujos,
+        "Flujo Descontado ($)": flujos_descontados,
+        "Retorno Acumulado ($)": flujo_acumulado_desc
     })
     
     return df_flujo, vpn, tir, payback
@@ -77,24 +88,24 @@ df, vpn, tir, payback = calcular_flujo_caja(capex, ahorro_anual, opex_anual, ani
 col1, col2, col3 = st.columns(3)
 col1.metric("Valor Presente Neto (VPN)", f"${vpn:,.2f}", delta="Viable" if vpn > 0 else "No Viable")
 col2.metric("Tasa Interna de Retorno (TIR)", f"{tir:.2f}%")
-col3.metric("Periodo de Recuperación", payback)
+col3.metric("Periodo de Recuperación (Descontado)", payback)
 
 # --- GRÁFICO PROFESIONAL (PLOTLY) ---
 st.subheader("Proyección del Flujo de Caja Libre (FCF)")
 
 fig = go.Figure()
-# Barras del flujo anual
+# Barras del flujo nominal (para ver el movimiento real de dinero)
 fig.add_trace(go.Bar(
     x=df["Año"], 
-    y=df["Flujo Neto ($)"],
-    name="Flujo Anual",
-    marker_color=['red' if val < 0 else 'green' for val in df["Flujo Neto ($)"]]
+    y=df["Flujo Nominal ($)"],
+    name="Flujo Nominal",
+    marker_color=['red' if val < 0 else 'green' for val in df["Flujo Nominal ($)"]]
 ))
-# Línea del flujo acumulado
+# Línea del flujo acumulado DESCONTADO (para ver el cruce real con el VPN)
 fig.add_trace(go.Scatter(
     x=df["Año"], 
-    y=df["Flujo Acumulado ($)"],
-    name="Retorno Acumulado",
+    y=df["Retorno Acumulado ($)"],
+    name="Retorno Acum. (Descontado)",
     mode='lines+markers',
     line=dict(color='orange', width=3)
 ))
@@ -109,4 +120,9 @@ st.plotly_chart(fig, use_container_width=True)
 
 # --- TABLA DE DATOS ---
 with st.expander("Ver Tabla de Amortización Detallada"):
-    st.dataframe(df.style.format({"Flujo Neto ($)": "${:,.2f}", "Flujo Acumulado ($)": "${:,.2f}"}))
+    # Formateo visual para la tabla
+    st.dataframe(df.style.format({
+        "Flujo Nominal ($)": "${:,.2f}", 
+        "Flujo Descontado ($)": "${:,.2f}",
+        "Retorno Acumulado ($)": "${:,.2f}"
+    }))
